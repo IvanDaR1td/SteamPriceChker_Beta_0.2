@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
                 self.tracked_games.append(new_game)
                 print(f"Tracking game: {name}")
 
-                # ✅ Use `asyncio.run_coroutine_threadsafe()` for safe async execution
+                # Use `asyncio.run_coroutine_threadsafe()` for safe async execution
                 message = f"Tracking started: **{name}** (ID: {appid}) Price: ${price:.2f}"
                 asyncio.run_coroutine_threadsafe(
                     self.notifier.send_notification(int(Config.DISCORD_CHANNEL_ID), message),
@@ -118,7 +118,7 @@ class MainWindow(QMainWindow):
         """Background price check task."""
         try:
             while True:
-                print("🔄 Checking for price changes...")
+                print(" Checking for price changes...")
                 for game in self.tracked_games.copy():
                     try:
                         async with aiohttp.ClientSession() as session:
@@ -133,12 +133,12 @@ class MainWindow(QMainWindow):
                                     f"🛒 Current price: ${current_price:.2f}\n"
                                     f"🎉 Discount: {discount_percent:.2f}%"
                                 )
-                                # ✅ Add `await` here
+                                #  Add `await` here
                                 await self.notifier.send_notification(game.channel_id, message)
                                 game.initial_price = current_price  # Update baseline price
                     except Exception as e:
                         print(f"Price check failed: {game.name} - {str(e)}")
                 await asyncio.sleep(3600)  # Check every hour
         except asyncio.CancelledError:
-            print("🛑 Price check task stopped")
+            print(" Price check task stopped")
 
