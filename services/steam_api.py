@@ -1,27 +1,42 @@
-import requests
-from config import Config
-
+import aiohttp
 
 class SteamAPI:
-    @staticmethod
-    def get_game_info(game_identifier):
-        url = f"http://store.steampowered.com/api/appdetails?appids={game_identifier}"
-        params = {"key": Config.STEAM_API_KEY}
+    def __init__(self, session: aiohttp.ClientSession):
+        self.session = session
+        self.base_url = "https://store.steampowered.com/api"
 
-        try:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-
-            if data[str(game_identifier)]["success"]:
-                return data[str(game_identifier)]["data"]
+    async def search_game(self, query):
+        """搜索Steam游戏"""
+        params = {
+            "term": query,
+            "cc": "us",
+            "l": "english",
+            "fuzzy": 1
+        }
+        async with self.session.get(
+            f"{self.base_url}/storesearch",
+            params=params
+        ) as response:
+            data = await response.json()
+            if data.get("items"):
+                return {
+                    "name": data["items"][0]["name"],
+                    "id": data["items"][0]["id"]
+                }
             return None
-        except Exception as e:
-            print(f"Steam API Error: {e}")
-            return None
 
-    @staticmethod
-    def get_current_price(game_data):
-        if "price_overview" in game_data:
-            return game_data["price_overview"]["final"] / 100
-        return None
+    async def get_price(self, appid):
+        """获取游戏价格"""
+        params = {
+            "appids": appid,
+            "cc": "us",
+            "filters": "price_overview"
+        }
+        async with self.session.get(
+            f"{self.base_url}/appdetails",
+            params=params
+        ) as response:
+            data = await response.json()
+            if data and data.get(str(appid), {}).get("data", {}).get("price_overview"):
+                return data[str(appid)]["data"]["price_overview"]["final"] / 100
+            return None

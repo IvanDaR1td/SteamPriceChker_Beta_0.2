@@ -1,112 +1,144 @@
 import asyncio
-import json
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                               QLineEdit, QPushButton, QListWidget,
-                               QCheckBox, QMessageBox, QHBoxLayout)
-from PySide6.QtCore import Qt, QTimer
-from aiohttp import ClientSession
+from PySide6.QtWidgets import (
+    QMainWindow, QPushButton, QLineEdit, QVBoxLayout,
+    QWidget, QLabel, QTableWidget, QTableWidgetItem, QHeaderView
+)
+from PySide6.QtCore import Qt
 from services.steam_api import SteamAPI
-from gui.themes import apply_dark_theme
+import aiohttp
+from models import TrackedGame
+from datetime import datetime
 from config import Config
 
+
 class MainWindow(QMainWindow):
-    def __init__(self, discord_notifier):
+    def __init__(self, notifier):
         super().__init__()
-        self.discord_notifier = discord_notifier
+        self.notifier = notifier
         self.tracked_games = []
-        self.client_session = ClientSession()
-        self.init_ui()
-        self.load_tracked_games()
-        self.setup_price_checker()
+        self.check_task = None
+        self._init_ui()
+        self.check_task = asyncio.create_task(self.check_price_changes())
 
-    async def closeEvent(self, event):
-        await self.client_session.close()  # Ensure session is closed properly
-        event.accept()
+    def closeEvent(self, event):
+        """Cancel async tasks when the window is closed."""
+        if self.check_task and not self.check_task.done():
+            self.check_task.cancel()
+        super().closeEvent(event)
 
-    def init_ui(self):
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
+    def _init_ui(self):
+        """Initialize the user interface."""
+        self.search_input = QLineEdit(self)
+        self.search_button = QPushButton("Search Game", self)
+        self.search_button.clicked.connect(self.on_search)
+
+        self.result_label = QLabel("Search Results:", self)
+        self.result_table = QTableWidget(self)
+        self.result_table.setColumnCount(3)
+        self.result_table.setHorizontalHeaderLabels(["Game Name", "Game ID", "Price"])
+        self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        self.track_button = QPushButton("Track Game", self)
+        self.track_button.clicked.connect(self.on_track)
+
+        # Layout
         layout = QVBoxLayout()
-
-        self.search_input = QLineEdit()
-        self.search_button = QPushButton("Search")
-        self.search_button.clicked.connect(lambda: asyncio.create_task(self.handle_search()))
-
-        self.tracked_list = QListWidget()
-        self.dark_mode_checkbox = QCheckBox("Dark Mode")
-        self.dark_mode_checkbox.stateChanged.connect(self.toggle_theme)
-
-        self.remove_button = QPushButton("Remove Selected")
-        self.remove_button.clicked.connect(self.remove_selected_game)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.search_button)
-        button_layout.addWidget(self.remove_button)
-
         layout.addWidget(self.search_input)
-        layout.addLayout(button_layout)
-        layout.addWidget(self.tracked_list)
-        layout.addWidget(self.dark_mode_checkbox)
+        layout.addWidget(self.search_button)
+        layout.addWidget(self.result_label)
+        layout.addWidget(self.result_table)
+        layout.addWidget(self.track_button)
 
-        self.central_widget.setLayout(layout)
-        self.setWindowTitle("Steam Price Tracker")
-        self.resize(800, 600)
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
 
-    def toggle_theme(self, state):
-        apply_dark_theme(self) if state == Qt.Checked else self.setStyleSheet("")
+    def on_search(self):
+        """Handle search button click."""
+        query = self.search_input.text()
+        if query:
+            asyncio.create_task(self.search_game(query))
 
-    async def handle_search(self):
-        query = self.search_input.text().strip()
-        if not query:
-            QMessageBox.warning(self, "Input Error", "Please enter a game name.")
-            return
-
+    async def search_game(self, query):
+        """Asynchronous search for a game."""
         try:
-            steam_api = SteamAPI(self.client_session)
-            game_data = await steam_api.search_game(query)
-            if game_data:
-                QMessageBox.information(self, "Search Success", f"Found game: {game_data['name']}")
-                self.tracked_games.append(game_data)
-                self.tracked_list.addItem(game_data['name'])
-                self.save_tracked_games()
-            else:
-                QMessageBox.warning(self, "Not Found", "No game found with that name.")
+            async with aiohttp.ClientSession() as session:
+                steam_api = SteamAPI(session)
+                result = await steam_api.search_game(query)
+                if result:
+                    price = await steam_api.get_price(result["id"])
+                    self.display_search_result(result["name"], result["id"], price)
+                else:
+                    print("Game not found")
         except Exception as e:
-            QMessageBox.critical(self, "API Error", f"Error fetching game data: {str(e)}")
+            print(f"Search error: {str(e)}")
 
-    def setup_price_checker(self):
-        self.check_timer = QTimer()
-        self.check_timer.timeout.connect(lambda: asyncio.create_task(self.check_prices()))
-        self.check_timer.start(Config.CHECK_INTERVAL * 1000)
+    def display_search_result(self, name, appid, price):
+        """Display the search results."""
+        self.result_table.setRowCount(1)
+        self.result_table.setItem(0, 0, QTableWidgetItem(name))
+        self.result_table.setItem(0, 1, QTableWidgetItem(str(appid)))
+        price_text = f"${price:.2f}" if price else "N/A"
+        self.result_table.setItem(0, 2, QTableWidgetItem(price_text))
 
-    async def check_prices(self):
-        for game in self.tracked_games:
+    def on_track(self):
+        """Handle the track game button click."""
+        selected_row = self.result_table.currentRow()
+        if selected_row >= 0:
             try:
-                steam_api = SteamAPI(self.client_session)
-                updated_price = await steam_api.get_price(game['id'])
-                if updated_price and updated_price != game['price']:
-                    game['price'] = updated_price
-                    self.discord_notifier.notify_price_drop(game['name'], updated_price)
+                name = self.result_table.item(selected_row, 0).text()
+                appid = int(self.result_table.item(selected_row, 1).text())
+                price_text = self.result_table.item(selected_row, 2).text()
+
+                if price_text == "N/A":
+                    raise ValueError("Price not available")
+
+                price = float(price_text.replace("$", ""))
+                new_game = TrackedGame(
+                    appid=appid,
+                    name=name,
+                    initial_price=price,
+                    last_checked=datetime.now(),
+                    channel_id=Config.DISCORD_CHANNEL_ID
+                )
+                self.tracked_games.append(new_game)
+                print(f"Tracking game: {name}")
+
+                # ✅ Use `asyncio.run_coroutine_threadsafe()` for safe async execution
+                message = f"Tracking started: **{name}** (ID: {appid}) Price: ${price:.2f}"
+                asyncio.run_coroutine_threadsafe(
+                    self.notifier.send_notification(int(Config.DISCORD_CHANNEL_ID), message),
+                    self.notifier.bot.loop
+                )
+
             except Exception as e:
-                print(f"Error checking price for {game['name']}: {e}")
+                print(f"Tracking error: {str(e)}")
 
-    def load_tracked_games(self):
+    async def check_price_changes(self):
+        """Background price check task."""
         try:
-            with open("tracked_games.json", "r") as file:
-                self.tracked_games = json.load(file)
-                for game in self.tracked_games:
-                    self.tracked_list.addItem(game['name'])
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.tracked_games = []
+            while True:
+                print("🔄 Checking for price changes...")
+                for game in self.tracked_games.copy():
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            steam_api = SteamAPI(session)
+                            current_price = await steam_api.get_price(game.appid)
+                            if current_price and current_price < game.initial_price:
+                                discount = game.initial_price - current_price
+                                discount_percent = (discount / game.initial_price) * 100
+                                message = (
+                                    f"🎮 **{game.name}** is on sale!\n"
+                                    f"💰 Original price: ${game.initial_price:.2f}\n"
+                                    f"🛒 Current price: ${current_price:.2f}\n"
+                                    f"🎉 Discount: {discount_percent:.2f}%"
+                                )
+                                # ✅ Add `await` here
+                                await self.notifier.send_notification(game.channel_id, message)
+                                game.initial_price = current_price  # Update baseline price
+                    except Exception as e:
+                        print(f"Price check failed: {game.name} - {str(e)}")
+                await asyncio.sleep(3600)  # Check every hour
+        except asyncio.CancelledError:
+            print("🛑 Price check task stopped")
 
-    def save_tracked_games(self):
-        with open("tracked_games.json", "w") as file:
-            json.dump(self.tracked_games, file, indent=4)
-
-    def remove_selected_game(self):
-        selected_item = self.tracked_list.currentItem()
-        if selected_item:
-            game_name = selected_item.text()
-            self.tracked_list.takeItem(self.tracked_list.row(selected_item))
-            self.tracked_games = [game for game in self.tracked_games if game['name'] != game_name]
-            self.save_tracked_games()

@@ -7,4 +7,4 @@ class TrackedGame:
     name: str
     initial_price: float
     last_checked: datetime
-    channel_id: int  # Discord 通知频道ID
+    channel_id: int
