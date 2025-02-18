@@ -1,9 +1,11 @@
 import asyncio
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QLineEdit, QVBoxLayout,
-    QWidget, QLabel, QTableWidget, QTableWidgetItem, QHeaderView
+    QWidget, QLabel, QTableWidget, QTableWidgetItem, QHeaderView, QHBoxLayout
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+import qtawesome as qta
 from services.steam_api import SteamAPI
 import aiohttp
 from models import TrackedGame
@@ -28,23 +30,39 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         """Initialize the user interface."""
+        self.setWindowTitle("Steam Price Tracker")
+        self.setGeometry(100, 100, 800, 600)
+
+        # Search bar and button
         self.search_input = QLineEdit(self)
-        self.search_button = QPushButton("Search Game", self)
+        self.search_input.setPlaceholderText("Enter game name...")
+        self.search_button = QPushButton(self)
+        self.search_button.setIcon(qta.icon("fa5s.search"))
         self.search_button.clicked.connect(self.on_search)
 
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_button)
+
+        # Result label and table
         self.result_label = QLabel("Search Results:", self)
+        self.result_label.setFont(QFont("Arial", 12, QFont.Bold))
+
         self.result_table = QTableWidget(self)
         self.result_table.setColumnCount(3)
         self.result_table.setHorizontalHeaderLabels(["Game Name", "Game ID", "Price"])
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.result_table.setSelectionBehavior(QTableWidget.SelectRows)
 
-        self.track_button = QPushButton("Track Game", self)
+        # Track button
+        self.track_button = QPushButton(self)
+        self.track_button.setIcon(qta.icon("fa5s.plus"))
+        self.track_button.setText("Track Game")
         self.track_button.clicked.connect(self.on_track)
 
         # Layout
         layout = QVBoxLayout()
-        layout.addWidget(self.search_input)
-        layout.addWidget(self.search_button)
+        layout.addLayout(search_layout)
         layout.addWidget(self.result_label)
         layout.addWidget(self.result_table)
         layout.addWidget(self.track_button)
@@ -60,26 +78,30 @@ class MainWindow(QMainWindow):
             asyncio.create_task(self.search_game(query))
 
     async def search_game(self, query):
-        """Asynchronous search for a game."""
+        """Asynchronous search for multiple games."""
         try:
             async with aiohttp.ClientSession() as session:
                 steam_api = SteamAPI(session)
-                result = await steam_api.search_game(query)
-                if result:
-                    price = await steam_api.get_price(result["id"])
-                    self.display_search_result(result["name"], result["id"], price)
+                results = await steam_api.search_game(query)  # Expect a list of results
+
+                self.result_table.setRowCount(0)
+
+                if results:
+                    self.result_table.setRowCount(len(results))  # Adjust table size
+                    for row, result in enumerate(results):
+                        price = await steam_api.get_price(result["id"])
+                        self.display_search_result(row, result["name"], result["id"], price)
                 else:
-                    print("Game not found")
+                    print("No games found")
         except Exception as e:
             print(f"Search error: {str(e)}")
 
-    def display_search_result(self, name, appid, price):
-        """Display the search results."""
-        self.result_table.setRowCount(1)
-        self.result_table.setItem(0, 0, QTableWidgetItem(name))
-        self.result_table.setItem(0, 1, QTableWidgetItem(str(appid)))
+    def display_search_result(self, row, name, appid, price):
+        """Display multiple search results."""
+        self.result_table.setItem(row, 0, QTableWidgetItem(name))
+        self.result_table.setItem(row, 1, QTableWidgetItem(str(appid)))
         price_text = f"${price:.2f}" if price else "N/A"
-        self.result_table.setItem(0, 2, QTableWidgetItem(price_text))
+        self.result_table.setItem(row, 2, QTableWidgetItem(price_text))
 
     def on_track(self):
         """Handle the track game button click."""
@@ -141,4 +163,3 @@ class MainWindow(QMainWindow):
                 await asyncio.sleep(3600)  # Check every hour
         except asyncio.CancelledError:
             print(" Price check task stopped")
-
