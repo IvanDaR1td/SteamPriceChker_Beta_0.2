@@ -1,4 +1,4 @@
-# SteamPriceChker-Beta0.2-
+# SteamPriceChker-Beta 0.2
 ### This program is a immediate thought someday that I thought: I wanna improve the basic Steam price checker that I did 3 years ago.
 ### So for this program, I redesigned the whole structure and logic.
 ## For now, what does the program do?
