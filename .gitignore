@@ -3,3 +3,4 @@ __pycache__/
 
 # 忽略所有 .pyc 文件
 *.pycconfig.py
+config.py
