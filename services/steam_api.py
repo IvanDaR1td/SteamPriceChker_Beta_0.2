@@ -6,27 +6,22 @@ class SteamAPI:
         self.base_url = "https://store.steampowered.com/api"
 
     async def search_game(self, query):
-        """搜索Steam游戏"""
+        """Search Steam games and return multiple results"""
         params = {
             "term": query,
             "cc": "us",
             "l": "english",
             "fuzzy": 1
         }
-        async with self.session.get(
-            f"{self.base_url}/storesearch",
-            params=params
-        ) as response:
+        async with self.session.get(f"{self.base_url}/storesearch", params=params) as response:
             data = await response.json()
+            print("Steam API Response:", data)  # Debugging
             if data.get("items"):
-                return {
-                    "name": data["items"][0]["name"],
-                    "id": data["items"][0]["id"]
-                }
-            return None
+                return [{"name": item["name"], "id": item["id"]} for item in data["items"]]
+            return []
 
     async def get_price(self, appid):
-        """获取游戏价格"""
+        """get game price"""
         params = {
             "appids": appid,
             "cc": "us",
