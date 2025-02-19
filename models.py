@@ -7,4 +7,4 @@ class TrackedGame:
     name: str
     initial_price: float
     last_checked: datetime
-    channel_id: int
+    channel_id: int  # Add the type annotation

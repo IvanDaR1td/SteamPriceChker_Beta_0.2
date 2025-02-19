@@ -5,12 +5,11 @@ class SteamAPI:
         self.session = session
         self.base_url = "https://store.steampowered.com/api"
 
-    async def search_game(self, query):
-        """Search Steam games and return multiple results"""
+    async def search_game(self, query, region="us", language="english"):
         params = {
             "term": query,
-            "cc": "us",
-            "l": "english",
+            "cc": region,
+            "l": language,
             "fuzzy": 1
         }
         async with self.session.get(f"{self.base_url}/storesearch", params=params) as response:
@@ -20,11 +19,10 @@ class SteamAPI:
                 return [{"name": item["name"], "id": item["id"]} for item in data["items"]]
             return []
 
-    async def get_price(self, appid):
-        """get game price"""
+    async def get_price(self, appid, region="us"):
         params = {
             "appids": appid,
-            "cc": "us",
+            "cc": region,
             "filters": "price_overview"
         }
         async with self.session.get(
